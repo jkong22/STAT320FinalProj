@@ -1,0 +1,230 @@
+---
+title: "JeffWorkingDocSTAT320Final"
+format: pdf
+editor: visual
+---
+
+```{r}
+library(readr)
+library(tidyverse)
+library(lubridate)
+library(janitor)
+library(vip)
+```
+
+```{r}
+df <- read_csv("STAT320FINALDATA.csv")
+df
+
+df <- df |> mutate(
+  actual_global_mean = Monthly_Temperature_Avg_celsisus_Pakistan + Global_monthly_temperature_anomaly
+)
+
+df
+```
+
+```{r}
+## Time Series Plot
+ggplot(df, aes(x = as.integer(Year), y = actual_global_mean)) +
+  geom_line() +
+  labs(title = "Monthly Average Temperature in Pakistan (1901-2015)",
+       x = "Date", y = "Temperature (°C)") +
+  theme_minimal()
+```
+
+```{r}
+summary_df <- df |> 
+  group_by(Year) |> 
+  summarize(mean_temp_per_year = mean(Monthly_Temperature_Avg_celsisus_Pakistan, na.rm = TRUE))
+
+ggplot(summary_df, aes(x = Year, y = mean_temp_per_year)) +
+  geom_line() + 
+  labs(title = "Average Monthly Temperature in Pakistan by Year",
+       y = "Logged Temperature (°C) ", x = "Year") +
+  theme_clean()
+
+g
+
+ggsave(filename = "log_mean_temp_by_year.png", plot = g,  width = 8, height = 5)
+```
+
+```{r}
+df
+ggplot(df, aes(x = Year, y = Monthly_Temperature_Avg_celsisus_Pakistan, fill = El_Nino_index
+)) +
+  geom_boxplot() +
+  theme_minimal() +
+  labs(y = "Monthly Average Temperature in Celcius") +
+  facet_wrap(~ Month)
+```
+
+```{r}
+ggplot(df, aes(x = actual_global_mean, y = Monthly_Temperature_Avg_celsisus_Pakistan, color = El_Nino_index
+)) +
+  geom_point(alpha = 0.3) +
+    geom_smooth(method = "lm", se = FALSE) +
+  labs(title = "Pakistan Temp vs Global Temp",
+       x = "Global Mean Temp", y = "Pakistan Avg Temp") +
+  theme_minimal()
+```
+
+ENSO (El Nino, La Nina, Neutral) seems to have no effect on the relationship between the average temperature in pakistan and the Global Mean temperature in celcius. There seems to be posiitve linear relationship between Pakistan Avg Temp versus the Global Mean Temp, showing the effects of global warming.
+
+Periodogram:
+
+```{r}
+par(mfrow = c(1,3))
+plot(log(df$Monthly_Temperature_Avg_celsisus_Pakistan), xlab = "Time", ylab = "log varve thickness", type='l', main = "Log Transformed Monthly Time Series Plot")
+acf(log(df$Monthly_Temperature_Avg_celsisus_Pakistan),  main = "ACF of Log Monthly Temperature")
+plot <- spec.pgram(log(df$Monthly_Temperature_Avg_celsisus_Pakistan), taper = 0, demean = TRUE, detrend = FALSE,
+log = "no", fast = FALSE, main = "Periodogram of Log Month Temperature")
+
+order(spec.pgram(log(df$Monthly_Temperature_Avg_celsisus_Pakistan), plot = FALSE)$spec, decreasing = TRUE)[1:3]
+
+plot$freq[c(67, 68, 135)]
+```
+```{r}
+1/0.08343711 
+```
+Around 12, so suggests a yearly 12 month cycle
+```{r}
+1/0.08468244
+```
+Also around 12, so suggests a yearly 12 month cycle
+```{r}
+1/0.16811955
+```
+Low key around 6, so this also shows a possible hidden 6 month cycle. 
+
+
+
+
+```{r}
+par(mfrow = c(1,3))
+plot(df$Monthly_Temperature_Avg_celsisus_Pakistan, xlab = "Time", ylab = "log varve thickness", type='l')
+acf(df$Monthly_Temperature_Avg_celsisus_Pakistan)
+spec.pgram(df$Monthly_Temperature_Avg_celsisus_Pakistan, taper = 0, demean = TRUE, detrend = FALSE,
+log = "no", fast = FALSE)
+```
+```{r}
+par(mfrow = c(1,3))
+plot(diff(df$Monthly_Temperature_Avg_celsisus_Pakistan), xlab = "Time", ylab = "log varve thickness", type='l')
+acf(diff(df$Monthly_Temperature_Avg_celsisus_Pakistan))
+spec.pgram(diff(df$Monthly_Temperature_Avg_celsisus_Pakistan), taper = 0, demean = TRUE, detrend = FALSE,
+log = "no", fast = FALSE)
+```
+
+
+
+Looking at the periodogram, there seems to be a huge spike in the spectrum a little under the frequency of 1, showing that there may be a strong yearly seasonal cycle. SARIMA model may be needed.
+
+Modeling:
+```{r}
+df
+model_lm1 <- lm(Monthly_Temperature_Avg_celsisus_Pakistan ~ Month + Year + actual_global_mean + Phenomenon, data = df)
+model_lm2 <- lm(Monthly_Temperature_Avg_celsisus_Pakistan ~ Year + actual_global_mean + Phenomenon, data = df)
+
+
+vip(model_lm)
+summary(model_lm1)
+summary(model_lm2)
+
+anova(model_lm1, model_lm2)
+##Model 2 better
+
+vip(model_lm2)
+##actual global mean dominates
+
+model_lm3 <- lm(Monthly_Temperature_Avg_celsisus ~ Year + Phenomenon, data = df)
+summary(model_lm3)
+
+anova(model_lm2, model_lm3)
+##model 1 is clearly better. 
+
+```
+Fitting Time Series 
+
+```{r}
+df
+df <- df %>%
+  mutate(
+    Month_Num = case_when(
+      Month ==  "January"   ~ 1,
+      Month ==  "February"  ~ 2,
+      Month == "March"     ~ 3,
+      Month == "April"     ~ 4,
+      Month == "May"       ~ 5,
+      Month == "June"      ~ 6,
+      Month == "July"      ~ 7,
+      Month == "August"    ~ 8,
+      Month == "September" ~ 9,
+      Month == "October"   ~ 10,
+      Month == "November"  ~ 11,
+      Month == "December"  ~ 12,
+      TRUE ~ NA_real_ 
+    )
+  )
+df
+```
+
+```{r}
+library(lubridate)
+
+df_clean <- df |> 
+  filter(!is.na(Monthly_Temperature_Avg_celsisus_Pakistan),
+         !is.na(Year),
+         !is.na(Month_Num)) |> 
+  mutate(Year = as.integer(Year), 
+         Month_Num = as.integer(Month_Num)) |> 
+  arrange(Year, Month_Num)
+
+df_clean
+
+ts_data <- ts(df_clean$Monthly_Temperature_Avg_celsisus_Pakistan,
+              start = c(min(df_clean$Year), min(df_clean$Month_Num)),
+              frequency = 12)
+```
+
+```{r}
+library(ggfortify)
+library(forecast)
+
+autoplot(ts_data)
+acf(ts_data)
+pacf(ts_data)
+ndiffs(ts_data)    # recommended number of differences
+nsdiffs(ts_data)   #
+```
+
+Sarima model
+```{r}
+fit_sarima <- Arima(ts_data, order = c(0, 0, 1), 
+                    seasonal = list(order = c(0, 2, 1), period = 12))
+
+summary(fit_sarima)
+
+checkresiduals(fit_sarima)
+
+forecast_sarima <- forecast(fit_sarima, h = 12)
+autoplot(forecast_sarima)
+```
+```{r}
+autoplot(ts_data) +
+  xlim(1990, 2025) +
+  labs(title = "Monthly Avg Temp (Zoomed)", x = "Year", y = "Temperature")
+
+accuracy(fit_sarima)
+summary(forecast_sarima)
+```
+```{r}
+checkresiduals(fit_sarima)
+```
+
+```{r}
+summary(residuals(fit_sarima))
+```
+
+
+
+
+
